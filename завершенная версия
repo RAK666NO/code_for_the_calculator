@@ -1,0 +1,438 @@
+import re
+import math
+import sys
+from typing import List, Union, Tuple
+from datetime import datetime
+
+class ExpressionCalculator:
+    """Продвинутый калькулятор для обработки сложных математических выражений"""
+    
+    def __init__(self):
+        # Расширенный список операторов с приоритетами
+        self.operators = {
+            '+': (1, lambda a, b: a + b, "сложение"),
+            '-': (1, lambda a, b: a - b, "вычитание"),
+            '*': (2, lambda a, b: a * b, "умножение"),
+            '/': (2, lambda a, b: a / b if b != 0 else self._handle_error("деление на ноль"), "деление"),
+            '^': (3, lambda a, b: a ** b, "возведение в степень"),
+            '%': (2, lambda a, b: a % b if b != 0 else self._handle_error("деление на ноль при взятии остатка"), "остаток от деления"),
+        }
+        
+        # Математические константы
+        self.constants = {
+            'pi': math.pi,
+            'e': math.e,
+            'π': math.pi,
+        }
+        
+        # Математические функции
+        self.functions = {
+            'sqrt': (1, lambda x: math.sqrt(x) if x >= 0 else self._handle_error("корень из отрицательного числа")),
+            'sin': (1, lambda x: math.sin(x)),
+            'cos': (1, lambda x: math.cos(x)),
+            'tan': (1, lambda x: math.tan(x) if math.cos(x) != 0 else self._handle_error("тангенс не определен")),
+            'asin': (1, lambda x: math.asin(x) if -1 <= x <= 1 else self._handle_error("арксинус вне диапазона")),
+            'acos': (1, lambda x: math.acos(x) if -1 <= x <= 1 else self._handle_error("арккосинус вне диапазона")),
+            'atan': (1, lambda x: math.atan(x)),
+            'log': (1, lambda x: math.log10(x) if x > 0 else self._handle_error("логарифм не определен")),
+            'ln': (1, lambda x: math.log(x) if x > 0 else self._handle_error("натуральный логарифм не определен")),
+            'exp': (1, lambda x: math.exp(x)),
+            'abs': (1, lambda x: abs(x)),
+            'floor': (1, lambda x: math.floor(x)),
+            'ceil': (1, lambda x: math.ceil(x)),
+            'round': (1, lambda x: round(x)),
+            'fact': (1, lambda x: math.factorial(int(x)) if x >= 0 and x == int(x) else self._handle_error("факториал не определен")),
+            'rad': (1, lambda x: math.radians(x)),
+            'deg': (1, lambda x: math.degrees(x)),
+        }
+        
+        # История вычислений
+        self.history = []
+        # Переменные пользователя
+        self.variables = {}
+        
+    def _handle_error(self, message: str):
+        """Обработка ошибок вычислений"""
+        raise ValueError(message)
+    
+    def calculate_expression(self, expression: str) -> float:
+        """Вычисление математического выражения"""
+        try:
+            # Удаляем пробелы и приводим к нижнему регистру
+            expression = expression.replace(' ', '').lower()
+            
+            # Заменяем константы
+            for const_name, const_value in self.constants.items():
+                expression = expression.replace(const_name, str(const_value))
+            
+            # Заменяем унарный минус
+            expression = re.sub(r'(?<=[\(\+\-\*/%\^,])-', 'u-', expression)
+            if expression.startswith('-'):
+                expression = 'u' + expression
+            
+            # Разбиваем на токены
+            tokens = self.tokenize(expression)
+            
+            # Конвертируем в обратную польскую нотацию
+            rpn = self.to_rpn(tokens)
+            
+            # Вычисляем результат
+            result = self.evaluate_rpn(rpn)
+            
+            # Сохраняем в историю
+            self.history.append({
+                'expression': expression,
+                'result': result,
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            })
+            
+            # Ограничиваем историю последними 50 записями
+            if len(self.history) > 50:
+                self.history = self.history[-50:]
+            
+            return result
+            
+        except Exception as e:
+            raise ValueError(f"Ошибка вычисления: {str(e)}")
+    
+    def tokenize(self, expression: str) -> List[Union[str, float]]:
+        """Разбивает выражение на токены"""
+        tokens = []
+        buffer = ''
+        i = 0
+        
+        while i < len(expression):
+            char = expression[i]
+            
+            # Обработка чисел (включая десятичные)
+            if char.isdigit() or char == '.':
+                buffer += char
+                i += 1
+                continue
+            
+            # Обработка функций и переменных
+            elif char.isalpha() or char == '_':
+                buffer += char
+                i += 1
+                # Читаем всё имя функции/переменной
+                while i < len(expression) and (expression[i].isalnum() or expression[i] == '_'):
+                    buffer += expression[i]
+                    i += 1
+                
+                # Проверяем, является ли это переменной
+                if buffer in self.variables:
+                    tokens.append(self.variables[buffer])
+                elif buffer in self.functions:
+                    tokens.append(buffer)  # Это функция
+                elif buffer in self.constants:
+                    tokens.append(self.constants[buffer])  # Константа уже заменена, но на всякий случай
+                else:
+                    # Если это не функция и не переменная, проверяем, может это начало числа (например, 2e3)
+                    if i < len(expression) and expression[i] in 'eE':
+                        buffer += expression[i]
+                        i += 1
+                        continue
+                    else:
+                        raise ValueError(f"Неизвестная функция или переменная: '{buffer}'")
+                
+                buffer = ''
+                continue
+            
+            # Если буфер не пуст (было число), добавляем его
+            if buffer:
+                # Проверяем научную нотацию
+                if buffer[-1].lower() == 'e' and char in '+-':
+                    buffer += char
+                    i += 1
+                    continue
+                
+                try:
+                    tokens.append(float(buffer))
+                except ValueError:
+                    raise ValueError(f"Некорректное число: '{buffer}'")
+                buffer = ''
+            
+            # Обработка операторов и скобок
+            if char in self.operators or char in '(),u':
+                tokens.append(char)
+            elif char != ' ':
+                raise ValueError(f"Некорректный символ: '{char}'")
+            
+            i += 1
+        
+        # Добавляем последнее число, если есть
+        if buffer:
+            try:
+                tokens.append(float(buffer))
+            except ValueError:
+                raise ValueError(f"Некорректное число: '{buffer}'")
+        
+        return tokens
+    
+    def to_rpn(self, tokens: List[Union[str, float]]) -> List[Union[str, float]]:
+        """Конвертирует в обратную польскую нотацию"""
+        output = []
+        stack = []
+        
+        for token in tokens:
+            if isinstance(token, (int, float)):
+                output.append(token)
+            
+            elif token == 'u':  # Унарный минус
+                stack.append(token)
+            
+            elif token in self.functions:
+                stack.append(token)
+            
+            elif token == ',':
+                while stack and stack[-1] != '(':
+                    output.append(stack.pop())
+                if not stack:
+                    raise ValueError("Некорректное использование запятой")
+            
+            elif token in self.operators:
+                while (stack and stack[-1] != '(' and 
+                       stack[-1] in self.operators and
+                       self.operators[stack[-1]][0] >= self.operators[token][0]):
+                    output.append(stack.pop())
+                stack.append(token)
+            
+            elif token == '(':
+                stack.append(token)
+            
+            elif token == ')':
+                while stack and stack[-1] != '(':
+                    output.append(stack.pop())
+                if not stack:
+                    raise ValueError("Несбалансированные скобки")
+                stack.pop()  # Удаляем '('
+                
+                if stack and stack[-1] in self.functions:
+                    output.append(stack.pop())
+                if stack and stack[-1] == 'u':
+                    output.append(stack.pop())
+        
+        while stack:
+            if stack[-1] == '(':
+                raise ValueError("Несбалансированные скобки")
+            output.append(stack.pop())
+        
+        return output
+    
+    def evaluate_rpn(self, rpn: List[Union[str, float]]) -> float:
+        """Вычисляет выражение в обратной польской нотации"""
+        stack = []
+        
+        for token in rpn:
+            if isinstance(token, (int, float)):
+                stack.append(token)
+            
+            elif token == 'u':
+                stack.append(-stack.pop())
+            
+            elif token in self.functions:
+                func_info = self.functions[token]
+                if len(stack) < func_info[0]:
+                    raise ValueError(f"Недостаточно аргументов для функции {token}")
+                
+                args = []
+                for _ in range(func_info[0]):
+                    args.insert(0, stack.pop())
+                
+                result = func_info[1](*args)
+                stack.append(result)
+            
+            elif token in self.operators:
+                if len(stack) < 2:
+                    raise ValueError(f"Недостаточно операндов для оператора {token}")
+                
+                b = stack.pop()
+                a = stack.pop()
+                result = self.operators[token][1](a, b)
+                
+                if result == float('inf') or result == -float('inf'):
+                    raise ValueError("Получена бесконечность")
+                if math.isnan(result):
+                    raise ValueError("Получено нечисловое значение (NaN)")
+                
+                stack.append(result)
+        
+        if len(stack) != 1:
+            raise ValueError("Некорректное выражение")
+        
+        return stack[0]
+    
+    def set_variable(self, name: str, value: float):
+        """Устанавливает переменную"""
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+            raise ValueError(f"Некорректное имя переменной: '{name}'")
+        self.variables[name] = value
+    
+    def get_variable(self, name: str) -> float:
+        """Получает значение переменной"""
+        return self.variables.get(name, 0)
+    
+    def clear_variables(self):
+        """Очищает все переменные"""
+        self.variables.clear()
+    
+    def show_history(self, limit: int = 10):
+        """Показывает историю вычислений"""
+        if not self.history:
+            print("История пуста")
+            return
+        
+        print("\n" + "═" * 60)
+        print(f"{'Время':<10} {'Выражение':<30} {'Результат':<20}")
+        print("═" * 60)
+        
+        for entry in self.history[-limit:]:
+            expr = entry['expression'][:28] + '..' if len(entry['expression']) > 30 else entry['expression']
+            result = f"{entry['result']:.6g}"
+            print(f"{entry['timestamp']:<10} {expr:<30} {result:<20}")
+    
+    def show_help(self):
+        """Показывает справку по функциям калькулятора"""
+        help_text = """
+╔══════════════════════════════════════════════════════════════╗
+║                  СПРАВКА ПО КАЛЬКУЛЯТОРУ                     ║
+╠══════════════════════════════════════════════════════════════╣
+║ ОПЕРАТОРЫ:                                                   ║
+║   +  сложение          -  вычитание          *  умножение    ║
+║   /  деление           ^  степень            %  остаток      ║
+║                                                              ║
+║ ФУНКЦИИ:                                                     ║
+║   sqrt(x)  - квадратный корень    sin(x)  - синус            ║
+║   cos(x)   - косинус              tan(x)  - тангенс         ║
+║   asin(x)  - арксинус             acos(x) - арккосинус      ║
+║   atan(x)  - арктангенс           log(x)  - десятичный лог. ║
+║   ln(x)    - натуральный логарифм exp(x)  - экспонента      ║
+║   abs(x)   - модуль               fact(x) - факториал       ║
+║   floor(x) - округление вниз      ceil(x) - округление вверх║
+║   round(x) - округление           rad(x)  - градусы в радианы║
+║   deg(x)   - радианы в градусы                               ║
+║                                                              ║
+║ КОНСТАНТЫ:                                                   ║
+║   pi, π    - 3.14159...         e       - 2.71828...        ║
+║                                                              ║
+║ ПЕРЕМЕННЫЕ:                                                  ║
+║   Используйте команды:                                        ║
+║     x = 10          - установить переменную                  ║
+║     vars           - показать все переменные                ║
+║     clear vars     - очистить все переменные                ║
+║                                                              ║
+║ ДРУГИЕ КОМАНДЫ:                                              ║
+║   history [n]      - показать историю (n записей)           ║
+║   clear history    - очистить историю                       ║
+║   help             - эта справка                            ║
+║   exit, quit, q    - выход                                  ║
+╚══════════════════════════════════════════════════════════════╝
+"""
+        print(help_text)
+
+def advanced_calculator():
+    """Продвинутый калькулятор с поддержкой сложных выражений"""
+    calc = ExpressionCalculator()
+    
+    print("╔══════════════════════════════════════════════════════════╗")
+    print("║         ПРОДВИНУТЫЙ КАЛЬКУЛЯТОР ВЫРАЖЕНИЙ                ║")
+    print("╠══════════════════════════════════════════════════════════╣")
+    print("║ Введите математическое выражение или команду             ║")
+    print("║ Для справки введите 'help'                              ║")
+    print("╚══════════════════════════════════════════════════════════╝")
+    
+    while True:
+        try:
+            print("\n" + "─" * 60)
+            user_input = input(">>> ").strip()
+            
+            if user_input.lower() in ['exit', 'quit', 'q']:
+                print("Выход из калькулятора...")
+                break
+            
+            elif user_input.lower() == 'help':
+                calc.show_help()
+                continue
+            
+            elif user_input.lower() == 'vars':
+                if not calc.variables:
+                    print("Переменные не определены")
+                else:
+                    print("\nТекущие переменные:")
+                    for name, value in calc.variables.items():
+                        print(f"  {name} = {value}")
+                continue
+            
+            elif user_input.lower() == 'clear vars':
+                calc.clear_variables()
+                print("✓ Все переменные очищены")
+                continue
+            
+            elif user_input.lower().startswith('history'):
+                parts = user_input.split()
+                if len(parts) == 1:
+                    calc.show_history()
+                elif len(parts) == 2 and parts[1].isdigit():
+                    calc.show_history(int(parts[1]))
+                else:
+                    print("Использование: history [количество_записей]")
+                continue
+            
+            elif user_input.lower() == 'clear history':
+                calc.history.clear()
+                print("✓ История очищена")
+                continue
+            
+            # Проверка на присвоение переменной
+            match = re.match(r'^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$', user_input)
+            if match:
+                var_name = match.group(1)
+                expr = match.group(2)
+                
+                try:
+                    value = calc.calculate_expression(expr)
+                    calc.set_variable(var_name, value)
+                    print(f"✓ Переменная '{var_name}' установлена в {value}")
+                except ValueError as e:
+                    print(f"Ошибка: {e}")
+                continue
+            
+            # Вычисление выражения
+            if user_input:
+                try:
+                    result = calc.calculate_expression(user_input)
+                    print(f"Результат: {result}")
+                    
+                    # Автоматически сохраняем в переменную ans
+                    calc.set_variable('ans', result)
+                    
+                except ValueError as e:
+                    print(f"Ошибка: {e}")
+                except ZeroDivisionError:
+                    print("Ошибка: деление на ноль!")
+                except OverflowError:
+                    print("Ошибка: переполнение!")
+                except Exception as e:
+                    print(f"Неожиданная ошибка: {e}")
+        
+        except KeyboardInterrupt:
+            print("\n\nДля выхода введите 'exit', 'quit' или 'q'")
+        except EOFError:
+            print("\n\nВыход из калькулятора...")
+            break
+
+# Альтернативный запуск с аргументами командной строки
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        # Режим командной строки
+        calc = ExpressionCalculator()
+        try:
+            expression = ' '.join(sys.argv[1:])
+            result = calc.calculate_expression(expression)
+            print(result)
+        except ValueError as e:
+            print(f"Ошибка: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # Интерактивный режим
+        advanced_calculator()
