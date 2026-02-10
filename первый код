@@ -1,0 +1,135 @@
+import re
+
+class ExpressionCalculator:
+    """Калькулятор для обработки сложных математических выражений"""
+    
+    def __init__(self):
+        self.operators = {
+            '+': (1, lambda a, b: a + b),
+            '-': (1, lambda a, b: a - b),
+            '*': (2, lambda a, b: a * b),
+            '/': (2, lambda a, b: a / b if b != 0 else float('inf')),
+            '^': (3, lambda a, b: a ** b),
+        }
+    
+    def calculate_expression(self, expression):
+        """Вычисление математического выражения"""
+        # Удаляем пробелы
+        expression = expression.replace(' ', '')
+        
+        # Заменяем унарный минус
+        expression = re.sub(r'(?<=[\(+\-*/^])-', 'u-', expression)
+        if expression.startswith('-'):
+            expression = 'u' + expression
+        
+        # Разбиваем на токены
+        tokens = self.tokenize(expression)
+        
+        # Конвертируем в обратную польскую нотацию
+        rpn = self.to_rpn(tokens)
+        
+        # Вычисляем результат
+        return self.evaluate_rpn(rpn)
+    
+    def tokenize(self, expression):
+        """Разбивает выражение на токены"""
+        tokens = []
+        number = ''
+        
+        for char in expression:
+            if char.isdigit() or char == '.':
+                number += char
+            else:
+                if number:
+                    tokens.append(float(number))
+                    number = ''
+                if char in self.operators or char in '()' or char == 'u':
+                    tokens.append(char)
+        
+        if number:
+            tokens.append(float(number))
+        
+        return tokens
+    
+    def to_rpn(self, tokens):
+        """Конвертирует в обратную польскую нотацию"""
+        output = []
+        stack = []
+        
+        for token in tokens:
+            if isinstance(token, (int, float)):
+                output.append(token)
+            elif token == 'u':
+                stack.append(token)
+            elif token in self.operators:
+                while (stack and stack[-1] != '(' and 
+                       (stack[-1] == 'u' or 
+                        self.operators[stack[-1]][0] >= self.operators[token][0])):
+                    output.append(stack.pop())
+                stack.append(token)
+            elif token == '(':
+                stack.append(token)
+            elif token == ')':
+                while stack and stack[-1] != '(':
+                    output.append(stack.pop())
+                stack.pop()  # Удаляем '('
+                if stack and stack[-1] == 'u':
+                    output.append(stack.pop())
+        
+        while stack:
+            output.append(stack.pop())
+        
+        return output
+    
+    def evaluate_rpn(self, rpn):
+        """Вычисляет выражение в обратной польской нотации"""
+        stack = []
+        
+        for token in rpn:
+            if isinstance(token, (int, float)):
+                stack.append(token)
+            elif token == 'u':
+                stack.append(-stack.pop())
+            elif token in self.operators:
+                b = stack.pop()
+                a = stack.pop()
+                result = self.operators[token][1](a, b)
+                stack.append(result)
+        
+        return stack[0] if stack else 0
+
+def advanced_calculator():
+    """Калькулятор с поддержкой сложных выражений"""
+    calc = ExpressionCalculator()
+    
+    print("╔══════════════════════════════════════════════╗")
+    print("║  КАЛЬКУЛЯТОР СЛОЖНЫХ ВЫРАЖЕНИЙ               ║")
+    print("╠══════════════════════════════════════════════╣")
+    print("║ Поддерживаются: + - * / ^ ( )                ║")
+    print("║ Примеры:                                      ║")
+    print("║   2+3*4       = 14                           ║")
+    print("║   (2+3)*4     = 20                           ║")
+    print("║   2^3+4*5     = 28                           ║")
+    print("║   10/(2+3)    = 2                            ║")
+    print("╚══════════════════════════════════════════════╝")
+    
+    while True:
+        print("\n" + "═" * 50)
+        expression = input("Введите выражение или 'q' для выхода: ")
+        
+        if expression.lower() == 'q':
+            print("Выход из калькулятора...")
+            break
+        
+        try:
+            result = calc.calculate_expression(expression)
+            if result == float('inf'):
+                print("Ошибка: деление на ноль!")
+            else:
+                print(f"Результат: {expression} = {result}")
+        except Exception as e:
+            print(f"Ошибка: {e}")
+
+# Запуск калькулятора сложных выражений
+if __name__ == "__main__":
+    advanced_calculator()
